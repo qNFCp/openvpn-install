@@ -8,6 +8,7 @@
 # Detect Debian users running the script with "sh" instead of bash
 if readlink /proc/$$/exe | grep -q "dash"; then
 	echo 'This installer needs to be run with "bash", not "sh".'
+	echo '此安装程序需使用"bash"运行，而不是"sh".'
 	exit
 fi
 
@@ -17,6 +18,7 @@ read -N 999999 -t 0.001
 # Detect OpenVZ 6
 if [[ $(uname -r | cut -d "." -f 1) -eq 2 ]]; then
 	echo "The system is running an old kernel, which is incompatible with this installer."
+	echo "系统正运行于与此脚本不兼容的旧内核"
 	exit
 fi
 
@@ -30,9 +32,9 @@ elif [[ -e /etc/debian_version ]]; then
 	os="debian"
 	os_version=$(grep -oE '[0-9]+' /etc/debian_version | head -1)
 	group_name="nogroup"
-elif [[ -e /etc/centos-release ]]; then
+elif [[ -e /etc/almalinux-release || -e /etc/rocky-release || -e /etc/centos-release ]]; then
 	os="centos"
-	os_version=$(grep -oE '[0-9]+' /etc/centos-release | head -1)
+	os_version=$(grep -shoE '[0-9]+' /etc/almalinux-release /etc/rocky-release /etc/centos-release | head -1)
 	group_name="nobody"
 elif [[ -e /etc/fedora-release ]]; then
 	os="fedora"
@@ -40,25 +42,30 @@ elif [[ -e /etc/fedora-release ]]; then
 	group_name="nobody"
 else
 	echo "This installer seems to be running on an unsupported distribution.
-Supported distributions are Ubuntu, Debian, CentOS, and Fedora."
+Supported distros are Ubuntu, Debian, AlmaLinux, Rocky Linux, CentOS and Fedora."
+	echo "此脚本不支持在此发行版中运行.
+受支持的发行版包括Ubuntu, Debian, AlmaLinux, Rocky Linux, CentOS 及 Fedora."
 	exit
 fi
 
 if [[ "$os" == "ubuntu" && "$os_version" -lt 1804 ]]; then
 	echo "Ubuntu 18.04 or higher is required to use this installer.
 This version of Ubuntu is too old and unsupported."
+	echo "使用此安装程序需要 Ubuntu 18.04 或更高版本. "
 	exit
 fi
 
 if [[ "$os" == "debian" && "$os_version" -lt 9 ]]; then
 	echo "Debian 9 or higher is required to use this installer.
 This version of Debian is too old and unsupported."
+	echo "使用此安装程序需要 Debian 9 或更高版本. "
 	exit
 fi
 
 if [[ "$os" == "centos" && "$os_version" -lt 7 ]]; then
 	echo "CentOS 7 or higher is required to use this installer.
 This version of CentOS is too old and unsupported."
+	echo "使用此安装程序需要 CentOS 7 或更高版本. "
 	exit
 fi
 
@@ -70,12 +77,15 @@ fi
 
 if [[ "$EUID" -ne 0 ]]; then
 	echo "This installer needs to be run with superuser privileges."
+	echo "此脚本需要最高权限运行"
 	exit
 fi
 
 if [[ ! -e /dev/net/tun ]] || ! ( exec 7<>/dev/net/tun ) 2>/dev/null; then
 	echo "The system does not have the TUN device available.
 TUN needs to be enabled before running this installer."
+	echo "系统没有可用的 TUN 设备。
+在运行此安装程序之前需要启用 TUN。"
 	exit
 fi
 
@@ -99,6 +109,14 @@ new_client () {
 }
 
 if [[ ! -e /etc/openvpn/server/server.conf ]]; then
+	# Detect some Debian minimal setups where neither wget nor curl are installed
+	if ! hash wget 2>/dev/null && ! hash curl 2>/dev/null; then
+		echo "Wget is required to use this installer."
+		echo "此安装程序需要wget,输入任意键以继续安装wget"
+		read -n1 -r -p "Press any key to install Wget and continue..."
+		apt-get update
+		apt-get install -y wget
+	fi
 	clear
 	echo 'Welcome to this OpenVPN road warrior installer!'
 	# If system has a single IPv4, it is selected automatically. Else, ask the user
@@ -108,10 +126,11 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		number_of_ip=$(ip -4 addr | grep inet | grep -vEc '127(\.[0-9]{1,3}){3}')
 		echo
 		echo "Which IPv4 address should be used?"
+		echo "应使用以下哪个IPv4地址?"
 		ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | nl -s ') '
 		read -p "IPv4 address [1]: " ip_number
 		until [[ -z "$ip_number" || "$ip_number" =~ ^[0-9]+$ && "$ip_number" -le "$number_of_ip" ]]; do
-			echo "$ip_number: invalid selection."
+			echo "$ip_number: invalid selection. 无效选择."
 			read -p "IPv4 address [1]: " ip_number
 		done
 		[[ -z "$ip_number" ]] && ip_number="1"
@@ -121,12 +140,13 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	if echo "$ip" | grep -qE '^(10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.|192\.168)'; then
 		echo
 		echo "This server is behind NAT. What is the public IPv4 address or hostname?"
+		echo "检测到NAT，本主机使用什么IPv4地址或主机名?"
 		# Get public IP and sanitize with grep
 		get_public_ip=$(grep -m 1 -oE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' <<< "$(wget -T 10 -t 1 -4qO- "http://ip1.dynupdate.no-ip.com/" || curl -m 10 -4Ls "http://ip1.dynupdate.no-ip.com/")")
 		read -p "Public IPv4 address / hostname [$get_public_ip]: " public_ip
 		# If the checkip service is unavailable and user didn't provide input, ask again
 		until [[ -n "$get_public_ip" || -n "$public_ip" ]]; do
-			echo "Invalid input."
+			echo "Invalid input.无效输入"
 			read -p "Public IPv4 address / hostname: " public_ip
 		done
 		[[ -z "$public_ip" ]] && public_ip="$get_public_ip"
@@ -140,10 +160,11 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		number_of_ip6=$(ip -6 addr | grep -c 'inet6 [23]')
 		echo
 		echo "Which IPv6 address should be used?"
+		echo "应使用以下哪个IPv6地址?"
 		ip -6 addr | grep 'inet6 [23]' | cut -d '/' -f 1 | grep -oE '([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}' | nl -s ') '
 		read -p "IPv6 address [1]: " ip6_number
 		until [[ -z "$ip6_number" || "$ip6_number" =~ ^[0-9]+$ && "$ip6_number" -le "$number_of_ip6" ]]; do
-			echo "$ip6_number: invalid selection."
+			echo "$ip6_number: invalid selection. 无效输入"
 			read -p "IPv6 address [1]: " ip6_number
 		done
 		[[ -z "$ip6_number" ]] && ip6_number="1"
@@ -151,7 +172,8 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	fi
 	echo
 	echo "Which protocol should OpenVPN use?"
-	echo "   1) UDP (recommended)"
+	echo "OpenVPN应使用以下哪种协议?"
+	echo "   1) UDP (default,recommended)"
 	echo "   2) TCP"
 	read -p "Protocol [1]: " protocol
 	until [[ -z "$protocol" || "$protocol" =~ ^[12]$ ]]; do
@@ -168,14 +190,17 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	esac
 	echo
 	echo "What port should OpenVPN listen to?"
+	echo "OpenVPN监听端口?"
 	read -p "Port [1194]: " port
 	until [[ -z "$port" || "$port" =~ ^[0-9]+$ && "$port" -le 65535 ]]; do
-		echo "$port: invalid port."
+		echo "$port: invalid port. 无效输入"
 		read -p "Port [1194]: " port
 	done
 	[[ -z "$port" ]] && port="1194"
 	echo
 	echo "Select a DNS server for the clients:"
+	echo "为客户端使用的DNS服务器:"
+	echo "   1) 当前系统解析"
 	echo "   1) Current system resolvers"
 	echo "   2) Google"
 	echo "   3) 1.1.1.1"
@@ -189,25 +214,28 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	done
 	echo
 	echo "Enter a name for the first client:"
+	echo "输入第一个用户名"
 	read -p "Name [client]: " unsanitized_client
 	# Allow a limited set of characters to avoid conflicts
 	client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 	[[ -z "$client" ]] && client="client"
 	echo
-	echo "OpenVPN installation is ready to begin."
-	# Install a firewall in the rare case where one is not already available
+	echo "OpenVPN installation is ready to begin. "
+	echo "OpenVPN 安装准备已就绪"
+	# Install a firewall if firewalld or iptables are not already available
 	if ! systemctl is-active --quiet firewalld.service && ! hash iptables 2>/dev/null; then
 		if [[ "$os" == "centos" || "$os" == "fedora" ]]; then
 			firewall="firewalld"
 			# We don't want to silently enable firewalld, so we give a subtle warning
 			# If the user continues, firewalld will be installed and enabled during setup
 			echo "firewalld, which is required to manage routing tables, will also be installed."
+			echo "管理路由表所需的防火墙也将被安装。"
 		elif [[ "$os" == "debian" || "$os" == "ubuntu" ]]; then
 			# iptables is way less invasive than firewalld so no warning is given
 			firewall="iptables"
 		fi
 	fi
-	read -n1 -r -p "Press any key to continue..."
+	read -n1 -r -p "输入任意键继续... Press any key to continue..."
 	# If running inside a container, disable LimitNPROC to prevent conflicts
 	if systemd-detect-virt -cq; then
 		mkdir /etc/systemd/system/openvpn-server@server.service.d/ 2>/dev/null
@@ -266,10 +294,10 @@ ca ca.crt
 cert server.crt
 key server.key
 dh dh.pem
-auth SHA512
+auth SHA256
 tls-crypt tc.key
 topology subnet
-server 10.8.0.0 255.255.255.0" > /etc/openvpn/server/server.conf
+server 10.7.0.0 255.255.255.0" > /etc/openvpn/server/server.conf
 	# IPv6
 	if [[ -z "$ip6" ]]; then
 		echo 'push "redirect-gateway def1 bypass-dhcp"' >> /etc/openvpn/server/server.conf
@@ -315,7 +343,7 @@ server 10.8.0.0 255.255.255.0" > /etc/openvpn/server/server.conf
 		;;
 	esac
 	echo "keepalive 10 120
-cipher AES-256-CBC
+cipher AES-128-CBC
 user nobody
 group $group_name
 persist-key
@@ -341,12 +369,12 @@ crl-verify crl.pem" >> /etc/openvpn/server/server.conf
 		# We don't use --add-service=openvpn because that would only work with
 		# the default port and protocol.
 		firewall-cmd --add-port="$port"/"$protocol"
-		firewall-cmd --zone=trusted --add-source=10.8.0.0/24
+		firewall-cmd --zone=trusted --add-source=10.7.0.0/24
 		firewall-cmd --permanent --add-port="$port"/"$protocol"
-		firewall-cmd --permanent --zone=trusted --add-source=10.8.0.0/24
+		firewall-cmd --permanent --zone=trusted --add-source=10.7.0.0/24
 		# Set NAT for the VPN subnet
-		firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
-		firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
+		firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s 10.7.0.0/24 ! -d 10.7.0.0/24 -j SNAT --to "$ip"
+		firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s 10.7.0.0/24 ! -d 10.7.0.0/24 -j SNAT --to "$ip"
 		if [[ -n "$ip6" ]]; then
 			firewall-cmd --zone=trusted --add-source=fddd:1194:1194:1194::/64
 			firewall-cmd --permanent --zone=trusted --add-source=fddd:1194:1194:1194::/64
@@ -367,13 +395,13 @@ crl-verify crl.pem" >> /etc/openvpn/server/server.conf
 Before=network.target
 [Service]
 Type=oneshot
-ExecStart=$iptables_path -t nat -A POSTROUTING -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to $ip
+ExecStart=$iptables_path -t nat -A POSTROUTING -s 10.7.0.0/24 ! -d 10.7.0.0/24 -j SNAT --to $ip
 ExecStart=$iptables_path -I INPUT -p $protocol --dport $port -j ACCEPT
-ExecStart=$iptables_path -I FORWARD -s 10.8.0.0/24 -j ACCEPT
+ExecStart=$iptables_path -I FORWARD -s 10.7.0.0/24 -j ACCEPT
 ExecStart=$iptables_path -I FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
-ExecStop=$iptables_path -t nat -D POSTROUTING -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to $ip
+ExecStop=$iptables_path -t nat -D POSTROUTING -s 10.7.0.0/24 ! -d 10.7.0.0/24 -j SNAT --to $ip
 ExecStop=$iptables_path -D INPUT -p $protocol --dport $port -j ACCEPT
-ExecStop=$iptables_path -D FORWARD -s 10.8.0.0/24 -j ACCEPT
+ExecStop=$iptables_path -D FORWARD -s 10.7.0.0/24 -j ACCEPT
 ExecStop=$iptables_path -D FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT" > /etc/systemd/system/openvpn-iptables.service
 		if [[ -n "$ip6" ]]; then
 			echo "ExecStart=$ip6tables_path -t nat -A POSTROUTING -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to $ip6
@@ -414,8 +442,8 @@ nobind
 persist-key
 persist-tun
 remote-cert-tls server
-auth SHA512
-cipher AES-256-CBC
+auth SHA256
+cipher AES-128-CBC
 ignore-unknown-option block-outside-dns
 block-outside-dns
 verb 3" > /etc/openvpn/server/client-common.txt
@@ -425,9 +453,12 @@ verb 3" > /etc/openvpn/server/client-common.txt
 	new_client
 	echo
 	echo "Finished!"
-	echo
 	echo "The client configuration is available in:" ~/"$client.ovpn"
 	echo "New clients can be added by running this script again."
+	echo
+	echo "已完成"
+	echo "客户端配置被保存于:" ~/"$client.ovpn"
+	echo ""
 else
 	clear
 	echo "OpenVPN is already installed."
@@ -437,19 +468,28 @@ else
 	echo "   2) Revoke an existing client"
 	echo "   3) Remove OpenVPN"
 	echo "   4) Exit"
+	echo 
+	echo
+	echo "OpenVPN已经安装，请选择一个选项:"
+	echo "   1) 添加新用户端"
+	echo "   2) 撤销现有用户"
+	echo "   3) 卸载 OpenVPN"
+	echo "   4) 退出脚本"
+	echo ""
+	echo 
 	read -p "Option: " option
 	until [[ "$option" =~ ^[1-4]$ ]]; do
-		echo "$option: invalid selection."
+		echo "$option: invalid selection. 无效输入"
 		read -p "Option: " option
 	done
 	case "$option" in
 		1)
 			echo
-			echo "Provide a name for the client:"
+			echo "Provide a name for the client: 键入新用户名:"
 			read -p "Name: " unsanitized_client
 			client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 			while [[ -z "$client" || -e /etc/openvpn/server/easy-rsa/pki/issued/"$client".crt ]]; do
-				echo "$client: invalid name."
+				echo "$client: invalid name. 无效输入"
 				read -p "Name: " unsanitized_client
 				client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 			done
@@ -459,6 +499,7 @@ else
 			new_client
 			echo
 			echo "$client added. Configuration available in:" ~/"$client.ovpn"
+			echo "$client 已添加. 配置文件被保存于:" ~/"$client.ovpn"
 			exit
 		;;
 		2)
@@ -468,22 +509,24 @@ else
 			if [[ "$number_of_clients" = 0 ]]; then
 				echo
 				echo "There are no existing clients!"
+				echo "未发现现有用户!"
 				exit
 			fi
 			echo
 			echo "Select the client to revoke:"
+			echo "选择将撤销的用户:"
 			tail -n +2 /etc/openvpn/server/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | nl -s ') '
 			read -p "Client: " client_number
 			until [[ "$client_number" =~ ^[0-9]+$ && "$client_number" -le "$number_of_clients" ]]; do
-				echo "$client_number: invalid selection."
+				echo "$client_number: invalid selection. 无效输入"
 				read -p "Client: " client_number
 			done
 			client=$(tail -n +2 /etc/openvpn/server/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | sed -n "$client_number"p)
 			echo
-			read -p "Confirm $client revocation? [y/N]: " revoke
+			read -p "Confirm $client revocation? 确认撤销用户 $client ? [y/N]: " revoke
 			until [[ "$revoke" =~ ^[yYnN]*$ ]]; do
-				echo "$revoke: invalid selection."
-				read -p "Confirm $client revocation? [y/N]: " revoke
+				echo "$revoke: invalid selection. 无效输入"
+				read -p "Confirm $client revocation? 确认撤销用户 $client ? [y/N]: " revoke
 			done
 			if [[ "$revoke" =~ ^[yY]$ ]]; then
 				cd /etc/openvpn/server/easy-rsa/
@@ -495,31 +538,33 @@ else
 				chown nobody:"$group_name" /etc/openvpn/server/crl.pem
 				echo
 				echo "$client revoked!"
+				echo "$client 已撤销"
 			else
 				echo
 				echo "$client revocation aborted!"
+				echo "$client 撤销中止"
 			fi
 			exit
 		;;
 		3)
 			echo
-			read -p "Confirm OpenVPN removal? [y/N]: " remove
+			read -p "Confirm OpenVPN removal? 确认卸载OpenVPN? [y/N]: " remove
 			until [[ "$remove" =~ ^[yYnN]*$ ]]; do
-				echo "$remove: invalid selection."
-				read -p "Confirm OpenVPN removal? [y/N]: " remove
+				echo "$remove: invalid selection. 无效输入"
+				read -p "Confirm OpenVPN removal? 确认卸载OpenVPN? [y/N]: " remove
 			done
 			if [[ "$remove" =~ ^[yY]$ ]]; then
 				port=$(grep '^port ' /etc/openvpn/server/server.conf | cut -d " " -f 2)
 				protocol=$(grep '^proto ' /etc/openvpn/server/server.conf | cut -d " " -f 2)
 				if systemctl is-active --quiet firewalld.service; then
-					ip=$(firewall-cmd --direct --get-rules ipv4 nat POSTROUTING | grep '\-s 10.8.0.0/24 '"'"'!'"'"' -d 10.8.0.0/24' | grep -oE '[^ ]+$')
+					ip=$(firewall-cmd --direct --get-rules ipv4 nat POSTROUTING | grep '\-s 10.7.0.0/24 '"'"'!'"'"' -d 10.7.0.0/24' | grep -oE '[^ ]+$')
 					# Using both permanent and not permanent rules to avoid a firewalld reload.
 					firewall-cmd --remove-port="$port"/"$protocol"
-					firewall-cmd --zone=trusted --remove-source=10.8.0.0/24
+					firewall-cmd --zone=trusted --remove-source=10.7.0.0/24
 					firewall-cmd --permanent --remove-port="$port"/"$protocol"
-					firewall-cmd --permanent --zone=trusted --remove-source=10.8.0.0/24
-					firewall-cmd --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
-					firewall-cmd --permanent --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
+					firewall-cmd --permanent --zone=trusted --remove-source=10.7.0.0/24
+					firewall-cmd --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.7.0.0/24 ! -d 10.7.0.0/24 -j SNAT --to "$ip"
+					firewall-cmd --permanent --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.7.0.0/24 ! -d 10.7.0.0/24 -j SNAT --to "$ip"
 					if grep -qs "server-ipv6" /etc/openvpn/server/server.conf; then
 						ip6=$(firewall-cmd --direct --get-rules ipv6 nat POSTROUTING | grep '\-s fddd:1194:1194:1194::/64 '"'"'!'"'"' -d fddd:1194:1194:1194::/64' | grep -oE '[^ ]+$')
 						firewall-cmd --zone=trusted --remove-source=fddd:1194:1194:1194::/64
@@ -535,20 +580,23 @@ else
 					semanage port -d -t openvpn_port_t -p "$protocol" "$port"
 				fi
 				systemctl disable --now openvpn-server@server.service
-				rm -rf /etc/openvpn/server
 				rm -f /etc/systemd/system/openvpn-server@server.service.d/disable-limitnproc.conf
 				rm -f /etc/sysctl.d/99-openvpn-forward.conf
 				if [[ "$os" = "debian" || "$os" = "ubuntu" ]]; then
+					rm -rf /etc/openvpn/server
 					apt-get remove --purge -y openvpn
 				else
 					# Else, OS must be CentOS or Fedora
 					yum remove -y openvpn
+					rm -rf /etc/openvpn/server
 				fi
 				echo
 				echo "OpenVPN removed!"
+				echo "OpenVPN 卸载完成!"
 			else
 				echo
 				echo "OpenVPN removal aborted!"
+				echo "OpenVPN 卸载中止"
 			fi
 			exit
 		;;
